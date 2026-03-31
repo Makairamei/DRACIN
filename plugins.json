@@ -1,0 +1,22 @@
+[
+    {
+        "iconUrl": "https://klikfilm.web.id/favicon.ico",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/Makairamei/DRACIN",
+        "fileSize": 23804,
+        "status": 1,
+        "language": "id",
+        "authors": [
+            "Makairamei"
+        ],
+        "tvTypes": [
+            "AsianDrama",
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "KlikFilm",
+        "description": "Nonton 29+ platform Drama Pendek China & Korea sub Indo gratis. BiliTV, DramaBox, Melolo, dan banyak lagi.",
+        "url": "https://raw.githubusercontent.com/Makairamei/DRACIN/builds/KlikFilm.cs3",
+        "name": "KlikFilm"
+    }
+]
