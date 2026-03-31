@@ -1,0 +1,9 @@
+{
+    "name": "DRACIN",
+    "description": "29+ Platform Drama Pendek China & Korea sub Indo — BiliTV, DramaBox, Melolo, dan banyak lagi.",
+    "iconUrl": "https://klikfilm.web.id/favicon.ico",
+    "manifestVersion": 1,
+    "pluginLists": [
+      "https://raw.githubusercontent.com/Makairamei/DRACIN/builds/plugins.json"
+    ]
+}
