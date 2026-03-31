@@ -54,7 +54,8 @@ jobs:
       - name: Copy built files to builds branch
         run: |
           mkdir -p builds
-          cp -r src/builds/* builds/ 2>/dev/null || true
+          find src -name "*.cs3" -exec cp {} builds/ \;
+          find src -name "plugins.json" -exec cp {} builds/ \;
           cp src/repo.json builds/ 2>/dev/null || true
 
       - name: Deploy to builds branch
