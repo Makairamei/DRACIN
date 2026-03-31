@@ -9,8 +9,20 @@ import org.jsoup.nodes.Element
 import android.util.Base64
 import java.net.URLDecoder
 import java.net.URLEncoder
+import com.fasterxml.jackson.annotation.JsonProperty
 
 class KlikFilm : MainAPI() {
+
+    data class SectionDrama(
+        @JsonProperty("id") val id: String = "",
+        @JsonProperty("title") val title: String = "",
+        @JsonProperty("poster") val poster: String = ""
+    )
+
+    data class SectionResponse(
+        @JsonProperty("dramas") val dramas: List<SectionDrama> = emptyList()
+    )
+
     override var mainUrl = "https://klikfilm.web.id"
     override var name = "Drama"
     override val hasMainPage = true
@@ -63,22 +75,42 @@ class KlikFilm : MainAPI() {
     // ──────────────────────────────────────────────────────────────────
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val slug = request.data.platformSlug()
-        val url = if (page == 1) "$mainUrl/$slug" else "$mainUrl/$slug/home"
+        
+        try {
+            val apiUrl = "$mainUrl/api/klikfilm/shortdrama/section?platform=$slug&section=foryou&page=$page"
+            val response = app.get(apiUrl, headers = baseHeaders()).parsedSafe<SectionResponse>()
+            if (response != null && response.dramas.isNotEmpty()) {
+                val items = response.dramas.mapNotNull { drama ->
+                    if (drama.id.isBlank() || drama.title.isBlank()) return@mapNotNull null
+                    val fullUrl = "$mainUrl/$slug/detail/${drama.id}"
+                    newTvSeriesSearchResponse(drama.title, fullUrl, TvType.AsianDrama) {
+                        this.posterUrl = drama.poster
+                    }
+                }
+                return newHomePageResponse(
+                    HomePageList(request.name, items, isHorizontalImages = false),
+                    hasNext = items.isNotEmpty()
+                )
+            }
+        } catch (e: Exception) {
+            // ignore API errors and fallback
+        }
+
+        val url = if (page == 1) "$mainUrl/$slug" else "$mainUrl/$slug/home?page=$page"
         val document = app.get(url, headers = baseHeaders()).document
 
         var items = document.select("a.group").mapNotNull { toSearchResult(it) }
 
-        // on page 1 if list is empty, fallback to /home listing
         if (page == 1 && items.isEmpty()) {
             val homeDoc = app.get("$mainUrl/$slug/home", headers = baseHeaders()).document
             items = homeDoc.select("a.group").mapNotNull { toSearchResult(it) }
             return newHomePageResponse(
-                HomePageList(request.name, items, isHorizontalImages = true),
+                HomePageList(request.name, items, isHorizontalImages = false),
                 hasNext = false
             )
         }
         return newHomePageResponse(
-            HomePageList(request.name, items, isHorizontalImages = true),
+            HomePageList(request.name, items, isHorizontalImages = false),
             hasNext = items.isNotEmpty() && page == 1
         )
     }
@@ -298,6 +330,7 @@ class KlikFilm : MainAPI() {
                     ) {
                         this.quality = Qualities.Unknown.value
                         this.referer = data
+                        this.headers = baseHeaders() // Add missing Cloudflare/browser headers to HLS stream
                     }
                 )
                 return true
