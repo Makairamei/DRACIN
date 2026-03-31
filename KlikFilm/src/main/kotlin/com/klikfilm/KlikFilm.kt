@@ -223,13 +223,14 @@ class KlikFilm : MainAPI() {
         val title = document.selectFirst("h1")?.text()?.trim()
             ?: document.title().substringBefore("—").trim()
 
-        val poster = document.select("img").firstOrNull { img ->
-            val src = img.attr("src")
-            src.contains("static") || src.contains("image") || src.contains("poster") || src.contains("drama")
-        }?.let { img ->
-            val src = img.attr("src")
-            if (src.isNotBlank()) src else img.attr("data-src")
-        }?.trim()?.let { fixUrlNull(it) }
+        val poster = document.selectFirst("meta[property=og:image]")?.attr("content")
+            ?: document.select("img").firstOrNull { img ->
+                val src = img.attr("src")
+                src.contains("static") || src.contains("image") || src.contains("poster") || src.contains("drama")
+            }?.let { img ->
+                val src = img.attr("src")
+                if (src.isNotBlank()) src else img.attr("data-src")
+            }?.trim()?.let { fixUrlNull(it) }
             ?: document.selectFirst("img")?.attr("src")?.let { fixUrlNull(it) }
 
         val description = document.select("p").firstOrNull { el ->
@@ -317,10 +318,25 @@ class KlikFilm : MainAPI() {
         for (match in proxyMatches) {
             val proxiedPath = match.groupValues[1]
             val encodedParam = match.groupValues[2]
-            val decodedUrl = decodeDoubleBase64(encodedParam)
+            
+            // 1. Emit the RAW proxy link as Server 1
+            val proxiedFullUrl = "$mainUrl$proxiedPath"
+            callback.invoke(
+                newExtractorLink(
+                    source = name,
+                    name = "$name Proxy",
+                    url = proxiedFullUrl,
+                    type = ExtractorLinkType.M3U8
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.referer = data
+                    this.headers = baseHeaders()
+                }
+            )
 
+            // 2. Try Decoding and emit direct HLS link as Server 2
+            val decodedUrl = decodeDoubleBase64(encodedParam)
             if (decodedUrl != null && decodedUrl.startsWith("http") && decodedUrl.contains(".m3u8")) {
-                // Use decoded direct URL
                 callback.invoke(
                     newExtractorLink(
                         source = name,
@@ -330,26 +346,9 @@ class KlikFilm : MainAPI() {
                     ) {
                         this.quality = Qualities.Unknown.value
                         this.referer = data
-                        this.headers = baseHeaders() // Add missing Cloudflare/browser headers to HLS stream
-                    }
-                )
-                return true
-            } else if (encodedParam.isNotBlank()) {
-                // Fallback: use the proxy URL directly (it does CORS proxying)
-                val proxiedFullUrl = "$mainUrl$proxiedPath"
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name = "$name Proxy",
-                        url = proxiedFullUrl,
-                        type = ExtractorLinkType.M3U8
-                    ) {
-                        this.quality = Qualities.Unknown.value
-                        this.referer = data
                         this.headers = baseHeaders()
                     }
                 )
-                return true
             }
         }
 
@@ -384,13 +383,23 @@ class KlikFilm : MainAPI() {
     private fun decodeDoubleBase64(encoded: String): String? {
         return try {
             val step1 = URLDecoder.decode(encoded, "UTF-8")
-            val step2 = String(Base64.decode(step1, Base64.DEFAULT or Base64.URL_SAFE), Charsets.UTF_8)
-            val step3 = String(Base64.decode(step2, Base64.DEFAULT or Base64.URL_SAFE), Charsets.UTF_8)
+            val step2Bytes = Base64.decode(step1, Base64.DEFAULT or Base64.URL_SAFE)
+            val step2 = String(step2Bytes, Charsets.UTF_8)
+            
+            // Sometimes it's a single encoding
+            if (step2.startsWith("http")) return step2
+            
+            val step3Bytes = Base64.decode(step2, Base64.DEFAULT or Base64.URL_SAFE)
+            val step3 = String(step3Bytes, Charsets.UTF_8)
             if (step3.startsWith("http")) step3 else null
         } catch (e: Exception) {
             try {
-                val step2 = String(Base64.decode(encoded, Base64.DEFAULT or Base64.URL_SAFE), Charsets.UTF_8)
-                val step3 = String(Base64.decode(step2, Base64.DEFAULT or Base64.URL_SAFE), Charsets.UTF_8)
+                val step2Bytes = Base64.decode(encoded, Base64.DEFAULT or Base64.URL_SAFE)
+                val step2 = String(step2Bytes, Charsets.UTF_8)
+                if (step2.startsWith("http")) return step2
+                
+                val step3Bytes = Base64.decode(step2, Base64.DEFAULT or Base64.URL_SAFE)
+                val step3 = String(step3Bytes, Charsets.UTF_8)
                 if (step3.startsWith("http")) step3 else null
             } catch (e2: Exception) {
                 null
