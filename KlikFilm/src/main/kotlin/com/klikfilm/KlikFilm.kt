@@ -288,18 +288,28 @@ class KlikFilm : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val pageHtml = app.get(data, headers = baseHeaders()).text
+        // Force NextJS to return the React Server Component payload which holds the video tokens
+        val rscHeaders = baseHeaders().toMutableMap().also { it["Rsc"] = "1" }
+        val rscText = app.get(data, headers = rscHeaders).text
 
-        // Strategy 1: find direct m3u8 URLs in page HTML
-        val m3u8DirectPattern = Regex("""https?://[^\s"'<>]+\.m3u8[^\s"'<>]*""")
-        val m3u8Matches = m3u8DirectPattern.findAll(pageHtml).map { it.value }.toList()
-        if (m3u8Matches.isNotEmpty()) {
-            for (m3u8Url in m3u8Matches) {
+        var foundLinks = false
+
+        // Extract any massive base64 blob that decrypts into our video URL
+        val base64Pattern = Regex("""([A-Za-z0-9+/]{100,}={0,2})""")
+        val b64Matches = base64Pattern.findAll(rscText).toList()
+
+        for (match in b64Matches) {
+            val encodedParam = match.groupValues[1]
+            val decodedUrl = decodeDoubleBase64(encodedParam)
+
+            if (decodedUrl != null && decodedUrl.startsWith("http") && decodedUrl.contains(".m3u8")) {
+                // 1. Emit the RAW proxy link as Server 1
+                val proxiedFullUrl = "$mainUrl/api/cors-proxy?url=$encodedParam"
                 callback.invoke(
                     newExtractorLink(
                         source = name,
-                        name = name,
-                        url = m3u8Url,
+                        name = "$name Proxy",
+                        url = proxiedFullUrl,
                         type = ExtractorLinkType.M3U8
                     ) {
                         this.quality = Qualities.Unknown.value
@@ -307,36 +317,8 @@ class KlikFilm : MainAPI() {
                         this.headers = baseHeaders()
                     }
                 )
-            }
-            return true
-        }
 
-        // Strategy 2: find cors-proxy URLs in HTML, decode to get real m3u8
-        val proxyUrlPattern = Regex("""['"](/api/cors-proxy\?url=([A-Za-z0-9+/=%]+))['"]""")
-        val proxyMatches = proxyUrlPattern.findAll(pageHtml).toList()
-
-        for (match in proxyMatches) {
-            val proxiedPath = match.groupValues[1]
-            val encodedParam = match.groupValues[2]
-            
-            // 1. Emit the RAW proxy link as Server 1
-            val proxiedFullUrl = "$mainUrl$proxiedPath"
-            callback.invoke(
-                newExtractorLink(
-                    source = name,
-                    name = "$name Proxy",
-                    url = proxiedFullUrl,
-                    type = ExtractorLinkType.M3U8
-                ) {
-                    this.quality = Qualities.Unknown.value
-                    this.referer = data
-                    this.headers = baseHeaders()
-                }
-            )
-
-            // 2. Try Decoding and emit direct HLS link as Server 2
-            val decodedUrl = decodeDoubleBase64(encodedParam)
-            if (decodedUrl != null && decodedUrl.startsWith("http") && decodedUrl.contains(".m3u8")) {
+                // 2. Try Decoding and emit direct HLS link as Server 2
                 callback.invoke(
                     newExtractorLink(
                         source = name,
@@ -349,19 +331,23 @@ class KlikFilm : MainAPI() {
                         this.headers = baseHeaders()
                     }
                 )
+                foundLinks = true
             }
         }
 
-        // Strategy 3: iframe fallback
+        if (foundLinks) return true
+
+        // Strategy 2: iframe fallback (raw HTML)
         val doc = app.get(data, headers = baseHeaders()).document
         doc.select("iframe").forEach { iframe ->
             val src = iframe.attr("src").ifBlank { iframe.attr("data-src") }
             if (src.isNotBlank() && src.startsWith("http")) {
                 loadExtractor(src, data, subtitleCallback, callback)
+                foundLinks = true
             }
         }
 
-        return true
+        return foundLinks
     }
 
     // ──────────────────────────────────────────────────────────────────
